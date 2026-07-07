@@ -72,6 +72,9 @@ export class RailScene {
     toPhi: number;
     fromTheta: number;
     toTheta: number;
+    /** 注視点の高さ(視点切替時に地表へ戻す) */
+    fromY: number;
+    toY: number;
     start: number;
   } | null = null;
 
@@ -82,6 +85,14 @@ export class RailScene {
   private raycaster = new THREE.Raycaster();
   private pointerDown = { x: 0, y: 0, button: -1 };
   private callbacks: RailSceneCallbacks;
+
+  // Ctrl+ドラッグによる上下移動(OrbitControlsは修飾キーで操作を反転させる仕様が
+  // あり素直にパンへ割り当てられないため、自前で注視点とカメラを平行移動する)
+  private verticalDrag: {
+    startClientY: number;
+    startTargetY: number;
+    startCameraY: number;
+  } | null = null;
 
   constructor(
     container: HTMLElement,
@@ -117,12 +128,14 @@ export class RailScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    // パンは画面基準ではなく地面(XZ平面)に沿わせ、注視点が地表から浮き沈みしないようにする
+    // 通常のパンは地面(XZ平面)に沿わせ、注視点が意図せず浮き沈みしないようにする
+    // (Ctrl押下中のみ画面基準パンに切り替わり、上下移動できる → onKeyChange)
     this.controls.screenSpacePanning = false;
-    this.controls.minDistance = 4;
+    this.controls.minDistance = 1.5;
     this.controls.maxDistance = 150;
     this.controls.minPolarAngle = 0.05;
-    this.controls.maxPolarAngle = 1.5;
+    // 地平線(π/2)を超えて地下側からも見上げられるようにする
+    this.controls.maxPolarAngle = 3.05;
     this.controls.target.set(3, 0, -7); // 都心をやや画面奥・右寄りに置く
     this.setCameraSpherical(28, 1.02, -0.1);
     this.controls.update();
@@ -174,6 +187,8 @@ export class RailScene {
     this.renderer.domElement.addEventListener("pointerdown", this.onPointerDown);
     this.renderer.domElement.addEventListener("pointerup", this.onPointerUp);
     this.renderer.domElement.addEventListener("pointermove", this.onPointerMove);
+    // キャンバス外でボタンを離しても上下移動ドラッグを確実に終了させる
+    window.addEventListener("pointerup", this.endVerticalDrag);
 
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(container);
@@ -215,7 +230,7 @@ export class RailScene {
     this.environment.setMapOpacity(opacity01);
   }
 
-  /** 俯瞰(真上)⇔チルトをアニメーションで切り替える */
+  /** 俯瞰(真上)⇔チルトをアニメーションで切り替える(注視点の高さも地表へ戻す) */
   setViewMode(mode: ViewMode): void {
     const sph = this.currentSpherical();
     this.viewAnim = {
@@ -223,6 +238,8 @@ export class RailScene {
       toPhi: mode === "top" ? 0.1 : 1.02,
       fromTheta: sph.theta,
       toTheta: sph.theta,
+      fromY: this.controls.target.y,
+      toY: 0,
       start: performance.now(),
     };
   }
@@ -239,6 +256,8 @@ export class RailScene {
       toPhi: sph.phi,
       fromTheta: from,
       toTheta: 0,
+      fromY: this.controls.target.y,
+      toY: this.controls.target.y,
       start: performance.now(),
     };
   }
@@ -257,6 +276,7 @@ export class RailScene {
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
     this.renderer.domElement.removeEventListener("pointerup", this.onPointerUp);
     this.renderer.domElement.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.endVerticalDrag);
     this.controls.dispose();
     for (const obj of this.lineObjects) {
       obj.path.dispose();
@@ -315,6 +335,7 @@ export class RailScene {
       sph.phi = a.fromPhi + (a.toPhi - a.fromPhi) * e;
       sph.theta = a.fromTheta + (a.toTheta - a.fromTheta) * e;
       sph.makeSafe();
+      this.controls.target.y = a.fromY + (a.toY - a.fromY) * e;
       this.camera.position
         .copy(this.controls.target)
         .add(new THREE.Vector3().setFromSpherical(sph));
@@ -372,9 +393,25 @@ export class RailScene {
 
   private onPointerDown = (e: PointerEvent): void => {
     this.pointerDown = { x: e.clientX, y: e.clientY, button: e.button };
+    // Ctrl+ドラッグ: 上下移動を開始(OrbitControls は一時停止)
+    if (e.ctrlKey && (e.button === 0 || e.button === 2)) {
+      this.verticalDrag = {
+        startClientY: e.clientY,
+        startTargetY: this.controls.target.y,
+        startCameraY: this.camera.position.y,
+      };
+      this.controls.enabled = false;
+    }
+  };
+
+  private endVerticalDrag = (): void => {
+    if (!this.verticalDrag) return;
+    this.verticalDrag = null;
+    this.controls.enabled = true;
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.endVerticalDrag();
     // ドラッグ(回転・パン)とクリックを移動量で区別する
     const moved =
       Math.abs(e.clientX - this.pointerDown.x) +
@@ -392,6 +429,15 @@ export class RailScene {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    // 上下移動ドラッグ中: 画面の内容がカーソルに追従する向きに注視点+カメラを平行移動
+    if (this.verticalDrag) {
+      const dyPx = e.clientY - this.verticalDrag.startClientY;
+      const viewDist = this.camera.position.distanceTo(this.controls.target);
+      const dy = dyPx * viewDist * 0.0016; // ズームに応じた移動量[km/px]
+      this.controls.target.y = this.verticalDrag.startTargetY + dy;
+      this.camera.position.y = this.verticalDrag.startCameraY + dy;
+      return;
+    }
     if (this.frame % 4 !== 0) return; // ホバー判定は間引く
     const hit = this.raycastStations(e);
     this.renderer.domElement.style.cursor = hit ? "pointer" : "grab";

@@ -195,6 +195,7 @@ export function ControlPanel(p: ControlPanelProps) {
         <div className="warn">深度・高度は視認性優先の概算値です。</div>
         <div>路線形状・駅位置: {DATA_SOURCE_CREDIT}</div>
         <div>ドラッグ: 回転 / 右ドラッグ・Shift+ドラッグ: 移動</div>
+        <div>Ctrl+ドラッグ: 上下移動(地下に潜って見上げられる)</div>
         <div>ホイール: 拡大縮小 / 駅クリック: 詳細表示</div>
       </div>
     </div>
