@@ -3,6 +3,9 @@
 東京・神奈川エリアの鉄道・地下鉄 全48路線(約800駅)を、暗い3D空間に発光ラインで俯瞰表示するWebアプリ。
 路線形状・駅位置は国土数値情報 鉄道データ(N02)由来の実データ。
 
+- **公開ページ**: https://esma-dev-studio.github.io/tokyo-kanagawa-rail-3d/
+- リポジトリ: https://github.com/esma-dev-studio/tokyo-kanagawa-rail-3d
+
 ## 起動方法
 
 ```bash
@@ -14,6 +17,22 @@ npm run dev
 
 本番ビルド: `npm run build` → `dist/` に出力(確認は `npm run preview`)。
 ※ ビルドが exit code 9 で無言失敗する場合は `dist/` フォルダが他プロセスにロックされているので、`dist/` を削除してから再実行する。
+
+## GitHub Pages へのデプロイ
+
+`gh-pages` ブランチにビルド成果物を置く方式(mainへのpushでは自動デプロイされない)。更新手順:
+
+```powershell
+Remove-Item -Recurse -Force dist; npm run build
+New-Item -ItemType File dist\.nojekyll
+cd dist
+git init -b gh-pages
+git add -A; git commit -m "Deploy to GitHub Pages"
+git push -f https://github.com/esma-dev-studio/tokyo-kanagawa-rail-3d.git gh-pages
+cd ..; Remove-Item -Recurse -Force dist\.git
+```
+
+数十秒〜数分で https://esma-dev-studio.github.io/tokyo-kanagawa-rail-3d/ に反映される。
 
 ## 操作方法
 
