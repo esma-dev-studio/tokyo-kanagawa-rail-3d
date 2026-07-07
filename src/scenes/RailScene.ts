@@ -117,6 +117,8 @@ export class RailScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
+    // パンは画面基準ではなく地面(XZ平面)に沿わせ、注視点が地表から浮き沈みしないようにする
+    this.controls.screenSpacePanning = false;
     this.controls.minDistance = 4;
     this.controls.maxDistance = 150;
     this.controls.minPolarAngle = 0.05;
